@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "datadog-downloader"
+version = "0.1.0"
+description = "Professional grade Datadog data downloader"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "datadog_downloader"}]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+python-dotenv = "^1.0.0"
+datadog-api-client = "^2.22.0"
+pydantic = "^2.6.1"
+pydantic-settings = "^2.1.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+black = "^24.1.1"
+isort = "^5.13.2"
+flake8 = "^7.0.0"
+mypy = "^1.8.0"
+
+[tool.poetry.scripts]
+datadog-downloader = "datadog_downloader.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
