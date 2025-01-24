@@ -112,14 +112,22 @@ class DatadogClient:
 
         # If it's a datadog API object, try to access its _data_store
         if hasattr(obj, '_data_store'):
-            return dict(obj._data_store)
+            data = dict(obj._data_store)
+            # Convert type to string if it exists
+            if 'type' in data:
+                data['type'] = str(data['type'])
+            return data
 
         # Fallback to getting all attributes
         result = {}
         for attr in dir(obj):
             if not attr.startswith('_') and not callable(getattr(obj, attr)):
                 try:
-                    result[attr] = getattr(obj, attr)
+                    value = getattr(obj, attr)
+                    # Convert type to string if it's the type attribute
+                    if attr == 'type':
+                        value = str(value)
+                    result[attr] = value
                 except Exception:
                     continue
         return result
@@ -151,12 +159,6 @@ class DatadogClient:
 
             # Debug the raw response
             logger.info(f"API Response type: {type(response)}")
-            logger.info(f"Raw response dir: {dir(response)}")
-
-            # Try to access the response data directly
-            if hasattr(response, '_data_store'):
-                logger.info(f"Response data store: {response._data_store}")
-
             logger.info(f"Number of monitors in response: {len(response) if response else 0}")
 
             if not response:
@@ -168,26 +170,23 @@ class DatadogClient:
             for i, monitor in enumerate(response):
                 try:
                     logger.debug(f"Processing monitor {i+1}/{len(response)}")
-                    logger.debug(f"Raw monitor data: {monitor}")
-                    logger.debug(f"Monitor type: {type(monitor)}")
-                    logger.debug(f"Monitor dir: {dir(monitor)}")
-
                     # Convert monitor to dictionary for safer attribute access
                     monitor_dict = self._to_dict(monitor)
-                    logger.debug(f"Converted monitor dict: {monitor_dict}")
                     logger.debug(f"Monitor basic info - ID: {monitor_dict.get('id')}, Name: {monitor_dict.get('name')}")
 
                     # Get detailed monitor information
                     try:
                         logger.debug(f"Fetching detailed information for monitor {monitor_dict.get('id')}")
                         details = self.monitors_api.get_monitor(monitor_dict['id'])
-                        logger.debug(f"Raw details: {details}")
                         details_dict = self._to_dict(details)
-                        logger.debug(f"Converted details dict: {details_dict}")
                         logger.debug("Successfully fetched monitor details")
                     except Exception as e:
                         logger.warning(f"Failed to get details for monitor {monitor_dict.get('id')}: {str(e)}")
                         details_dict = monitor_dict
+
+                    # Ensure type is a string
+                    if 'type' in details_dict:
+                        details_dict['type'] = str(details_dict['type'])
 
                     # Create Monitor object with enhanced information
                     mon = Monitor(
@@ -196,7 +195,7 @@ class DatadogClient:
                         message=details_dict.get('message', ''),
                         tags=details_dict.get('tags', []),
                         notify_targets=self._parse_notifications(details_dict.get('message', '')),
-                        type=details_dict.get('type', ''),
+                        type=str(details_dict.get('type', '')),  # Convert type to string
                         query=details_dict.get('query', ''),
                         priority=self._get_monitor_severity(details_dict),
                         state=details_dict.get('state', ''),

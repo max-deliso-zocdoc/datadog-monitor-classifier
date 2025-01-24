@@ -3,9 +3,9 @@
 import logging
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
 
 from .client import Monitor, NotificationTarget
 
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS monitors (
     project TEXT,
     first_seen TIMESTAMP,
     last_updated TIMESTAMP,
+    fetched_at TIMESTAMP,  -- When the monitor was last fetched from the API
     is_active BOOLEAN DEFAULT 1
 );
 
@@ -60,13 +61,16 @@ CREATE INDEX IF NOT EXISTS idx_monitors_project ON monitors(project);
 
 -- Index for faster tag lookups
 CREATE INDEX IF NOT EXISTS idx_monitor_tags_tag ON monitor_tags(tag);
+
+-- Index for faster fetched_at lookups
+CREATE INDEX IF NOT EXISTS idx_monitors_fetched_at ON monitors(fetched_at);
 """
 
 
 class MonitorDB:
     """Database operations for monitor data."""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, fetch_interval: timedelta = timedelta(days=1)):
         """Initialize database connection."""
         if db_path is None:
             db_path = Path("data") / "monitors.db"
@@ -75,6 +79,7 @@ class MonitorDB:
         db_path.parent.mkdir(exist_ok=True)
 
         self.db_path = db_path
+        self.fetch_interval = fetch_interval
         self._init_db()
 
     @contextmanager
@@ -92,6 +97,27 @@ class MonitorDB:
         with self.get_connection() as conn:
             conn.executescript(SCHEMA_SQL)
             conn.commit()
+
+    def get_monitors_needing_refresh(self) -> Set[int]:
+        """Get set of monitor IDs that need to be refreshed based on fetch_interval."""
+        cutoff_time = datetime.utcnow() - self.fetch_interval
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Get monitors that haven't been fetched recently or have never been fetched
+            cursor.execute("""
+                SELECT id FROM monitors
+                WHERE fetched_at IS NULL
+                OR fetched_at < ?
+                OR is_active = 1
+            """, (cutoff_time,))
+            return {row[0] for row in cursor.fetchall()}
+
+    def get_all_monitor_ids(self) -> Set[int]:
+        """Get all monitor IDs in the database."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM monitors")
+            return {row[0] for row in cursor.fetchall()}
 
     def upsert_monitor(self, monitor: Monitor):
         """Upsert a monitor and its related data."""
@@ -113,8 +139,8 @@ class MonitorDB:
                 INSERT INTO monitors (
                     id, name, message, type, query, priority,
                     state, overall_state, options, project,
-                    first_seen, last_updated, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    first_seen, last_updated, fetched_at, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     message = excluded.message,
@@ -126,12 +152,13 @@ class MonitorDB:
                     options = excluded.options,
                     project = excluded.project,
                     last_updated = excluded.last_updated,
+                    fetched_at = excluded.fetched_at,
                     is_active = 1
             """, (
                 monitor.id, monitor.name, monitor.message, monitor.type,
                 monitor.query, monitor.priority, monitor.state,
                 monitor.overall_state, str(monitor.options), monitor.project,
-                first_seen, now
+                first_seen, now, now
             ))
 
             # Update tags

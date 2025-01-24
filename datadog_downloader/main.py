@@ -1,6 +1,7 @@
 """Main entry point for the Datadog downloader."""
 import logging
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 from .client import DatadogClient
 from .db import MonitorDB
@@ -40,20 +41,27 @@ def main():
     logger.info("Starting Datadog downloader")
 
     client = DatadogClient()
-    db = MonitorDB()
+    db = MonitorDB(fetch_interval=timedelta(days=1))
 
     logger.info("Fetching monitors...")
     monitors = client.get_monitors()
-    logger.info(f"Found {len(monitors)} monitors")
+    logger.info(f"Found {len(monitors)} monitors in Datadog")
 
-    # Store monitors in database
+    # Get monitors that need refresh
+    monitors_to_refresh = db.get_monitors_needing_refresh()
+    logger.info(f"Found {len(monitors_to_refresh)} monitors that need to be refreshed")
+
+    # Store only monitors that need refresh
     active_monitor_ids = []
+    refreshed_count = 0
     for monitor in monitors:
-        try:
-            db.upsert_monitor(monitor)
-            active_monitor_ids.append(monitor.id)
-        except Exception as e:
-            logger.error(f"Failed to store monitor {monitor.id}: {str(e)}", exc_info=True)
+        active_monitor_ids.append(monitor.id)
+        if monitor.id in monitors_to_refresh:
+            try:
+                db.upsert_monitor(monitor)
+                refreshed_count += 1
+            except Exception as e:
+                logger.error(f"Failed to store monitor {monitor.id}: {str(e)}", exc_info=True)
 
     # Mark monitors not in this fetch as inactive
     if active_monitor_ids:
@@ -64,7 +72,9 @@ def main():
 
     # Print summary
     logger.info("\nMonitor Statistics:")
-    logger.info(f"Total Active Monitors: {sum(project_counts.values())}")
+    logger.info(f"Total Monitors in Datadog: {len(monitors)}")
+    logger.info(f"Monitors Refreshed: {refreshed_count}")
+    logger.info(f"Total Active Monitors in DB: {sum(project_counts.values())}")
     logger.info("\nMonitors by Project:")
     for project, count in sorted(project_counts.items()):
         logger.info(f"  {project.upper()}: {count} monitors")
