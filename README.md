@@ -114,3 +114,15 @@ cp .env.example .env
 ```
 
 2. Add your Datadog credentials to `.env` (never commit this file)
+
+## Running the application
+
+1. Activate the Poetry virtual environment:
+```bash
+poetry shell
+```
+
+2. Run the application:
+```bash
+poetry run python -m datadog_downloader.main
+```
