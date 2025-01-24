@@ -1,14 +1,35 @@
 """Main entry point for the Datadog downloader."""
 import logging
+import argparse
 from collections import defaultdict
 from datetime import datetime, timedelta
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 from .client import DatadogClient
 from .db import MonitorDB
 from .logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
+console = Console()
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Download and analyze Datadog monitors.")
+    parser.add_argument(
+        "--max-fetch",
+        type=int,
+        help="Maximum number of monitors to fetch. If not specified, fetches all monitors.",
+        default=None
+    )
+    parser.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="Force refresh all monitors regardless of last fetch time."
+    )
+    return parser.parse_args()
 
 def format_notification_targets(notify_targets):
     """Format notification targets into a readable string."""
@@ -34,51 +55,78 @@ def format_notification_targets(notify_targets):
 
     return "\n".join(result)
 
-
 def main():
     """Main function to run the Datadog downloader."""
     setup_logging()
-    logger.info("Starting Datadog downloader")
+    args = parse_args()
+
+    # Create a fancy title
+    title = Text("Datadog Monitor Downloader", style="bold magenta")
+    console.print(Panel(title, border_style="blue"))
 
     client = DatadogClient()
     db = MonitorDB(fetch_interval=timedelta(days=1))
 
-    logger.info("Fetching monitors...")
-    monitors = client.get_monitors()
-    logger.info(f"Found {len(monitors)} monitors in Datadog")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=True
+    ) as progress:
+        # Fetch monitors with progress
+        fetch_task = progress.add_task("Fetching monitors from Datadog...", total=None)
+        monitors = client.get_monitors(max_fetch=args.max_fetch)
+        progress.update(fetch_task, total=1, completed=1)
 
-    # Get monitors that need refresh
-    monitors_to_refresh = db.get_monitors_needing_refresh()
-    logger.info(f"Found {len(monitors_to_refresh)} monitors that need to be refreshed")
+        # Show total monitors found
+        console.print(f"[green]Found {len(monitors)} monitors in Datadog[/green]")
 
-    # Store only monitors that need refresh
-    active_monitor_ids = []
-    refreshed_count = 0
-    for monitor in monitors:
-        active_monitor_ids.append(monitor.id)
-        if monitor.id in monitors_to_refresh:
-            try:
-                db.upsert_monitor(monitor)
-                refreshed_count += 1
-            except Exception as e:
-                logger.error(f"Failed to store monitor {monitor.id}: {str(e)}", exc_info=True)
+        # Get monitors that need refresh
+        monitors_to_refresh = db.get_monitors_needing_refresh() if not args.force_refresh else {m.id for m in monitors}
+        console.print(f"[yellow]Found {len(monitors_to_refresh)} monitors that need to be refreshed[/yellow]")
 
-    # Mark monitors not in this fetch as inactive
-    if active_monitor_ids:
-        db.mark_inactive_monitors(active_monitor_ids)
+        # Store monitors with progress
+        refresh_task = progress.add_task(
+            "Refreshing monitors...",
+            total=len(monitors_to_refresh)
+        )
 
-    # Get statistics from database
-    project_counts = db.get_monitor_count_by_project()
+        # Store only monitors that need refresh
+        active_monitor_ids = []
+        refreshed_count = 0
+        for monitor in monitors:
+            active_monitor_ids.append(monitor.id)
+            if monitor.id in monitors_to_refresh:
+                try:
+                    db.upsert_monitor(monitor)
+                    refreshed_count += 1
+                    progress.update(refresh_task, advance=1)
+                except Exception as e:
+                    logger.error(f"Failed to store monitor {monitor.id}: {str(e)}")
 
-    # Print summary
-    logger.info("\nMonitor Statistics:")
-    logger.info(f"Total Monitors in Datadog: {len(monitors)}")
-    logger.info(f"Monitors Refreshed: {refreshed_count}")
-    logger.info(f"Total Active Monitors in DB: {sum(project_counts.values())}")
-    logger.info("\nMonitors by Project:")
-    for project, count in sorted(project_counts.items()):
-        logger.info(f"  {project.upper()}: {count} monitors")
+        # Mark inactive monitors
+        if active_monitor_ids:
+            db.mark_inactive_monitors(active_monitor_ids)
 
+        # Get project statistics
+        project_counts = db.get_monitor_count_by_project()
+
+        # Print final statistics in a panel
+        stats = [
+            Text("Monitor Statistics", style="bold blue"),
+            Text(f"Total Monitors in Datadog: {len(monitors)}", style="green"),
+            Text(f"Monitors Refreshed: {refreshed_count}", style="yellow"),
+            Text(f"Total Active Monitors in DB: {sum(project_counts.values())}", style="cyan"),
+            Text("\nMonitors by Project:", style="bold magenta")
+        ]
+
+        for project, count in project_counts.items():
+            stats.append(Text(f"  {project}: {count} monitors", style="bright_blue"))
+
+        console.print(Panel("\n".join(str(s) for s in stats), border_style="blue"))
 
 if __name__ == "__main__":
     main()

@@ -12,6 +12,7 @@ python-dotenv = "^1.0.0"
 datadog-api-client = "^2.22.0"
 pydantic = "^2.6.1"
 pydantic-settings = "^2.1.0"
+rich = "^13.7.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

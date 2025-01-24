@@ -73,12 +73,15 @@ class MonitorDB:
     def __init__(self, db_path: Optional[str] = None, fetch_interval: timedelta = timedelta(days=1)):
         """Initialize database connection."""
         if db_path is None:
-            db_path = Path("data") / "monitors.db"
+            db_path = "monitors.db"
 
-        # Ensure directory exists
-        db_path.parent.mkdir(exist_ok=True)
+        # Convert string path to Path object
+        self.db_path = Path(db_path)
 
-        self.db_path = db_path
+        # Ensure directory exists if path includes directories
+        if self.db_path.parent != Path('.'):
+            self.db_path.parent.mkdir(exist_ok=True)
+
         self.fetch_interval = fetch_interval
         self._init_db()
 

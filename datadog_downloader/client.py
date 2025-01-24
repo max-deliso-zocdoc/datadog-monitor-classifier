@@ -151,8 +151,12 @@ class DatadogClient:
 
         return "normal"
 
-    def get_monitors(self) -> List[Monitor]:
-        """Get all monitors and classify them."""
+    def get_monitors(self, max_fetch: Optional[int] = None) -> List[Monitor]:
+        """Get all monitors and classify them.
+
+        Args:
+            max_fetch: Optional maximum number of monitors to fetch. If None, fetches all monitors.
+        """
         try:
             logger.info("Calling list_monitors API endpoint...")
             response = self.monitors_api.list_monitors()
@@ -166,10 +170,12 @@ class DatadogClient:
                 return []
 
             monitors = []
+            total_monitors = len(response)
+            process_count = min(total_monitors, max_fetch) if max_fetch else total_monitors
 
-            for i, monitor in enumerate(response):
+            for i, monitor in enumerate(response[:process_count]):
                 try:
-                    logger.debug(f"Processing monitor {i+1}/{len(response)}")
+                    logger.debug(f"Processing monitor {i+1}/{process_count}")
                     # Convert monitor to dictionary for safer attribute access
                     monitor_dict = self._to_dict(monitor)
                     logger.debug(f"Monitor basic info - ID: {monitor_dict.get('id')}, Name: {monitor_dict.get('name')}")
@@ -184,9 +190,11 @@ class DatadogClient:
                         logger.warning(f"Failed to get details for monitor {monitor_dict.get('id')}: {str(e)}")
                         details_dict = monitor_dict
 
-                    # Ensure type is a string
+                    # Ensure type and overall_state are strings
                     if 'type' in details_dict:
                         details_dict['type'] = str(details_dict['type'])
+                    if 'overall_state' in details_dict:
+                        details_dict['overall_state'] = str(details_dict['overall_state'])
 
                     # Create Monitor object with enhanced information
                     mon = Monitor(
