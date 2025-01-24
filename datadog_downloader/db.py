@@ -106,14 +106,22 @@ class MonitorDB:
         cutoff_time = datetime.utcnow() - self.fetch_interval
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            # Get monitors that haven't been fetched recently or have never been fetched
-            cursor.execute("""
-                SELECT id FROM monitors
-                WHERE fetched_at IS NULL
-                OR fetched_at < ?
-                OR is_active = 1
-            """, (cutoff_time,))
-            return {row[0] for row in cursor.fetchall()}
+            # Get all monitor IDs in the database
+            cursor.execute("SELECT id, fetched_at FROM monitors")
+            existing_monitors = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # A monitor needs refresh if:
+            # 1. It's not in the database (fetched_at is None)
+            # 2. It hasn't been fetched recently (fetched_at < cutoff_time)
+            needs_refresh = set()
+            cursor.execute("SELECT id FROM monitors")
+            for row in cursor.fetchall():
+                monitor_id = row[0]
+                fetched_at = existing_monitors.get(monitor_id)
+                if fetched_at is None or fetched_at < cutoff_time:
+                    needs_refresh.add(monitor_id)
+
+            return needs_refresh
 
     def get_all_monitor_ids(self) -> Set[int]:
         """Get all monitor IDs in the database."""

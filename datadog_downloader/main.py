@@ -85,7 +85,9 @@ def main():
         console.print(f"[green]Found {len(monitors)} monitors in Datadog[/green]")
 
         # Get monitors that need refresh
-        monitors_to_refresh = db.get_monitors_needing_refresh() if not args.force_refresh else {m.id for m in monitors}
+        existing_monitor_ids = db.get_all_monitor_ids()
+        # Force refresh if database is empty or --force-refresh is set
+        monitors_to_refresh = {m.id for m in monitors} if not existing_monitor_ids or args.force_refresh else db.get_monitors_needing_refresh()
         console.print(f"[yellow]Found {len(monitors_to_refresh)} monitors that need to be refreshed[/yellow]")
 
         # Store monitors with progress
