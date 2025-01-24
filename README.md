@@ -103,3 +103,14 @@ poetry run mypy .
 # Run tests
 poetry run pytest
 ```
+
+## Development Setup
+
+After cloning the repository:
+
+1. Copy the environment template:
+```bash
+cp .env.example .env
+```
+
+2. Add your Datadog credentials to `.env` (never commit this file)
